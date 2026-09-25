@@ -1,1 +1,1 @@
-{"version": 14, "games": 336, "board": 9, "note": "REINFORCE self-play weights (terminal win/loss reward only)"}
+{"version": 496, "games": 3968, "board": 9, "note": "REINFORCE self-play (SCNet DCU)"}
