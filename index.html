@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>围棋小星球 · 9路少儿围棋 · 和 AI 下棋</title>
+<script>window.addEventListener('error',function(e){(window.__err=window.__err||[]).push((e.message||e.type)+' @ '+(e.filename||'')+':'+e.lineno);});</script>
+<script src="./ort.min.js"></script>
+<script src="./engine.js"></script>
+<style>
+:root{--bg:#fdf6e8;--card:#ffffff;--line:#e8dcc2;--ink:#4a3b28;--mut:#a08d6d;--grn:#3fae5a;--org:#f78166;--blu:#4a9de0;--red:#e5544b;--yel:#e5a83b;--wood:#e6c186}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:"Microsoft YaHei","PingFang SC",sans-serif;font-size:16px}
+.wrap{max-width:1020px;margin:0 auto;padding:18px 16px 60px}
+header{display:flex;align-items:center;gap:12px;margin:6px 0 16px;flex-wrap:wrap}
+header h1{font-size:26px}
+.badge{padding:5px 14px;border-radius:999px;font-size:13px;background:#fff;border:2px solid var(--line);color:var(--mut)}
+.badge.on{border-color:var(--grn);color:var(--grn);font-weight:700}
+.layout{display:grid;grid-template-columns:minmax(330px,500px) 1fr;gap:18px;align-items:start}
+@media(max-width:880px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--card);border:2px solid var(--line);border-radius:18px;padding:16px 18px;box-shadow:0 3px 0 var(--line)}
+.panel h2{font-size:16px;color:var(--blu);margin-bottom:10px}
+#boardBox{position:relative}
+canvas{width:100%;display:block;border-radius:14px;cursor:pointer;box-shadow:0 4px 0 var(--line)}
+#overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(255,250,238,.85);border-radius:14px;text-align:center}
+#overlay .t{font-size:24px;font-weight:800;margin-bottom:6px}
+#overlay .stars{font-size:34px;letter-spacing:4px}
+#overlay .s{color:var(--mut);font-size:14px;margin:6px 0 12px}
+button{border:none;border-radius:12px;padding:11px 16px;font-size:15px;font-weight:700;cursor:pointer;background:var(--grn);color:#fff}
+button.alt{background:var(--blu)}
+button.warn{background:var(--org)}
+button.mut{background:#cfc2a6;color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;align-items:center}
+select{border:2px solid var(--line);border-radius:10px;padding:9px 10px;font-size:14px;background:#fff;color:var(--ink)}
+.turn{font-size:19px;font-weight:800;margin-bottom:4px}
+.progress{height:12px;background:#f2ead6;border-radius:8px;overflow:hidden;margin:8px 0 4px;border:1px solid var(--line)}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--blu),var(--grn));width:0%;transition:width .3s}
+.stat{color:var(--mut);font-size:13px;min-height:20px}
+.caps{display:flex;gap:18px;margin-top:10px;font-size:15px}
+.caps b{font-size:20px}
+.msg{min-height:22px;margin-top:8px;color:var(--yel);font-weight:700;font-size:14px}
+.log{margin-top:6px;max-height:150px;overflow-y:auto;font-size:13px;color:var(--mut);line-height:1.9}
+.help{font-size:13.5px;color:var(--mut);line-height:1.9}
+.help b{color:var(--ink)}
+.modal{position:fixed;inset:0;background:rgba(74,59,40,.5);display:none;align-items:center;justify-content:center;z-index:9}
+.modal .box{background:#fff;border-radius:18px;max-width:520px;width:92%;padding:22px 24px}
+.modal h3{margin-bottom:10px;color:var(--blu)}
+.modal p{line-height:1.9;font-size:15px;margin-bottom:8px}
+.modal .x{margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🪐 围棋小星球</h1>
+    <span class="badge on" id="youBadge">分配执子中…</span>
+    <span class="badge" id="aiBadge">AI 模型加载中…</span>
+    <span class="badge">9路 · 数子法 · 无贴目</span>
+  </header>
+
+  <div class="layout">
+    <div class="panel" id="boardBox">
+      <canvas id="cv" width="900" height="900"></canvas>
+      <div id="overlay"><div>
+        <div class="stars" id="ovStars"></div>
+        <div class="t" id="ovT"></div>
+        <div class="s" id="ovS"></div>
+        <button id="ovAgain">🔄 再来一局</button>
+      </div></div>
+      <div class="caps">⚫ 你吃到的子 <b id="capB" style="color:var(--ink)">0</b>
+        <span>⚪ AI 吃到的子 <b id="capW" style="color:var(--ink)">0</b></span>
+        <span>第 <b id="mvN" style="color:var(--ink)">0</b> 手</span></div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <div class="turn" id="turn">正在准备…</div>
+        <div class="progress"><i id="bar"></i></div>
+        <div class="stat" id="thinkStat">AI 在你自己的浏览器里思考,不联网也能玩</div>
+        <div class="msg" id="msg"></div>
+        <div class="row">
+          <select id="diff" title="AI 难度">
+            <option value="120">🌱 启蒙 · AI 会放水</option>
+            <option value="400" selected>🌿 进阶 · AI 认真下</option>
+            <option value="900">🌳 挑战 · AI 全力</option>
+          </select>
+          <button id="btnHint" class="alt">💡 提示</button>
+          <button id="btnPass" class="mut">🙋 弃权</button>
+          <button id="btnUndo" class="warn">↩ 悔棋</button>
+          <button id="btnNew">🔄 新开局</button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>三分钟学会下围棋</h2>
+        <div class="help">
+          <b>① 气</b> — 棋子上下左右紧挨的空点就是它的"气",气全被堵住就会被提走。<br>
+          <b>② 提子</b> — 把对方棋子的气全部堵完,那些子就被你吃掉啦。<br>
+          <b>③ 禁入点</b> — 落子后自己没气还不能提对方,那个点不能下。<br>
+          <b>④ 数子</b> — 双方都弃权就结束,棋盘上谁的子+地盘多,谁就赢!
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:14px">
+        <h2>对局记录</h2>
+        <div class="log" id="log">(尚未落子)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+const $ = id => document.getElementById(id);
+const cv = $('cv'), ctx = cv.getContext('2d');
+const N = 9, M = 78, CW = (900 - 2 * M) / (N - 1), PASS = N * N;
+const px = i => M + (i % N) * CW, py = i => M + ((i / N) | 0) * CW;
+
+let S = null, hover = -1, hints = [], ready = false, thinking = false, meta = null;
+
+function freshState() {
+  const human = Math.random() < 0.5 ? 1 : 2;
+  return {
+    board: new Array(N * N).fill(0),
+    toMove: 1,
+    human, ai: human === 1 ? 2 : 1,
+    histKeys: [Array(N * N).fill(0).join('')],
+    passes: 0, capMe: 0, capAi: 0, moves: [],
+    snaps: [], over: false, result: null, territory: null,
+  };
+}
+
+function pushSnap() {   /* snaps[k] = 第 k 手落下之前的状态 */
+  S.snaps.push({ board: S.board.slice(), toMove: S.toMove,
+    hist: S.histKeys.slice(), passes: S.passes,
+    capMe: S.capMe, capAi: S.capAi, nmoves: S.moves.length });
+}
+
+function restore(s) {
+  S.board = s.board.slice(); S.toMove = s.toMove; S.histKeys = s.hist.slice();
+  S.passes = s.passes; S.capMe = s.capMe; S.capAi = s.capAi;
+  S.moves.length = s.nmoves; S.over = false; S.result = null; S.territory = null;
+}
+
+/* ---------- 绘制 ---------- */
+function draw() {
+  ctx.fillStyle = '#e6c186'; ctx.fillRect(0, 0, 900, 900);
+  ctx.strokeStyle = '#8a6b3c'; ctx.lineWidth = 2;
+  for (let k = 0; k < N; k++) {
+    ctx.beginPath(); ctx.moveTo(px(k), py(0)); ctx.lineTo(px(k), py(N * N - N)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(px(0), py(k * N)); ctx.lineTo(px(N * N - 1), py(k * N)); ctx.stroke();
+  }
+  ctx.fillStyle = '#6b4f2a'; ctx.font = '24px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const CL = 'ABCDEFGHJ';
+  for (let k = 0; k < N; k++) { ctx.fillText(CL[k], px(k), py(0) - 44); ctx.fillText(String(k + 1), px(0) - 44, py(k * N)); }
+  for (const h of hints) {
+    if (h.idx < PASS) {
+      ctx.beginPath(); ctx.arc(px(h.idx), py(h.idx), 30, 0, 7);
+      ctx.fillStyle = 'rgba(63,174,90,.45)'; ctx.fill();
+    }
+  }
+  if (S && hover >= 0 && S.board[hover] === 0 && !S.over && myTurn()) {
+    ctx.beginPath(); ctx.arc(px(hover), py(hover), 26, 0, 7);
+    ctx.fillStyle = 'rgba(74,59,40,.28)'; ctx.fill();
+  }
+  if (!S) return;
+  if (S.territory) {
+    for (let i = 0; i < N * N; i++) {
+      if (S.board[i] === 0 && S.territory[i]) {
+        ctx.fillStyle = S.territory[i] === 1 ? 'rgba(74,157,224,.5)' : 'rgba(63,174,90,.5)';
+        ctx.beginPath(); ctx.arc(px(i), py(i), 13, 0, 7); ctx.fill();
+      }
+    }
+  }
+  for (let i = 0; i < N * N; i++) {
+    const v = S.board[i]; if (!v) continue;
+    ctx.beginPath(); ctx.arc(px(i), py(i), 27, 0, 7);
+    ctx.fillStyle = v === 1 ? '#23272e' : '#f6f4ef'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = v === 1 ? '#0d0f12' : '#b9b3a4'; ctx.stroke();
+  }
+  const last = S.moves[S.moves.length - 1];
+  if (last && last.idx < PASS) {
+    ctx.beginPath(); ctx.arc(px(last.idx), py(last.idx), 10, 0, 7);
+    ctx.fillStyle = '#e5544b'; ctx.fill();
+  }
+}
+
+/* ---------- 音效(WebAudio,无素材) ---------- */
+let AC = null;
+function beep(freq, dur, type) {
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type || 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.12, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, AC.currentTime + dur);
+    o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime + dur);
+  } catch (e) {}
+}
+
+/* ---------- AI(主线程分片异步:每16次模拟让出UI,进度条实时) ---------- */
+let session = null, thinkToken = 0;
+
+async function initAI() {
+  try {
+    ort.env.wasm.numThreads = 1;
+    session = await ort.InferenceSession.create('./model.onnx', { executionProviders: ['wasm'] });
+    ready = true;
+    $('aiBadge').textContent = '🤖 AI 已就绪 · ' + (meta ? '模型 v' + meta.version : '浏览器本地推理');
+    maybeAiTurn();
+  } catch (err) {
+    $('msg').textContent = 'AI 加载失败: ' + (err && err.message || err);
+  }
+}
+
+function aiThink() {
+  thinking = true; hints = [];
+  const token = ++thinkToken;
+  const history = new Set(S.histKeys);
+  const boardC = S.board.slice(), color = S.toMove, passes = S.passes, ply = S.moves.length;
+  (async () => {
+    const r = await mctsSearch(session, boardC, color, history, passes, +$('diff').value, ply,
+      it => { $('bar').style.width = Math.min(100, it / (+$('diff').value) * 100) + '%';
+              $('thinkStat').textContent = 'AI 思考中… 已模拟 ' + it + ' 局'; },
+      () => token !== thinkToken);
+    if (token !== thinkToken) { refresh(); return; }   /* 已被新局/悔棋取消 */
+    thinking = false; $('bar').style.width = '0%';
+    $('thinkStat').textContent = 'AI 上一手评估胜率 ' + Math.round(r.wr * 100) + '%(模拟 ' + r.iters + ' 局)';
+    applyMove(r.idx, false);
+    refresh();
+  })().catch(err => { thinking = false; $('msg').textContent = 'AI 出错: ' + (err && err.message || err); refresh(); });
+}
+
+function maybeAiTurn() {
+  if (!ready || !S || S.over || thinking || S.toMove !== S.ai) return;
+  aiThink();
+}
+
+/* ---------- 落子逻辑 ---------- */
+function myTurn() { return S && !S.over && !thinking && S.toMove === S.human; }
+
+function applyMove(idx, byHuman) {
+  pushSnap();
+  const color = S.toMove;
+  const isHuman = color === S.human;
+  const who = isHuman ? (color === 1 ? '⚫你' : '⚪你') : (color === 1 ? '⚫AI' : '⚪AI');
+  if (idx === PASS) {
+    S.passes++;
+    S.moves.push({ idx: PASS, text: who + ' 弃权', whoHuman: isHuman });
+  } else {
+    const before = S.board.slice();
+    const r = tryPlay(S.board, idx, color);
+    if (!r || S.histKeys.includes(r.board.join(''))) { S.snaps.pop(); return false; }
+    let cap = 0;
+    for (let i = 0; i < N * N; i++) if (before[i] !== 0 && r.board[i] === 0) cap++;
+    if (isHuman) S.capMe += cap; else S.capAi += cap;
+    S.board = r.board;
+    S.histKeys.push(r.board.join(''));
+    S.passes = 0;
+    S.moves.push({ idx, text: who + ' 落子 ' + coordName(idx) + (cap ? '(提' + cap + ')' : ''), whoHuman: isHuman });
+    if (byHuman) beep(cap ? 660 : 440, cap ? 0.25 : 0.12, cap ? 'triangle' : 'sine');
+  }
+  S.toMove = color === 1 ? 2 : 1;
+  if (S.passes >= 2) finish();
+  return true;
+}
+
+function coordName(i) { return 'ABCDEFGHJ'[i % N] + (((i / N) | 0) + 1); }
+
+function finish() {
+  const { sb, sw, own } = score(S.board);
+  S.territory = own;
+  const my = S.human === 1 ? sb : sw, ai = S.human === 1 ? sw : sb;
+  const win = my > ai;
+  S.over = true;
+  S.result = '数子结果 黑' + sb + ' : 白' + sw + (win ? ' — 你赢啦!' : (my === ai ? ' — 平局' : ' — AI 略胜'));
+  $('ovStars').textContent = win ? (my - ai >= 15 ? '⭐⭐⭐' : '⭐⭐') : '⭐';
+  $('ovT').textContent = win ? '🎉 你赢了!' : (my === ai ? '🤝 平局,也很棒!' : '💪 差一点点,再来!');
+  $('ovS').textContent = S.result + ' · 你围了 ' + my + ' 点,AI 围了 ' + ai + ' 点';
+  $('overlay').style.display = 'flex';
+  beep(win ? 880 : 330, 0.5, 'sine');
+}
+
+/* ---------- UI 事件 ---------- */
+cv.addEventListener('mousemove', (e) => {
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * 900 / r.width, y = (e.clientY - r.top) * 900 / r.height;
+  let best = -1, bd = 1e9;
+  for (let i = 0; i < N * N; i++) { const d = (px(i) - x) ** 2 + (py(i) - y) ** 2; if (d < bd) { bd = d; best = i; } }
+  hover = bd <= 32 * 32 ? best : -1;
+  draw();
+});
+cv.addEventListener('mouseleave', () => { hover = -1; draw(); });
+cv.addEventListener('click', () => {
+  if (!myTurn()) return;
+  if (hover < 0) return;
+  const before = S.board.slice();
+  if (applyMove(hover, true)) {
+    for (let i = 0; i < N * N; i++) if (before[i] !== 0 && S.board[i] === 0) beep(660, 0.25, 'triangle');
+    hints = []; $('msg').textContent = ''; refresh();
+  } else $('msg').textContent = '这里不能下哦:有子/没气/打劫';
+});
+$('btnPass').onclick = () => {
+  if (!myTurn()) return;
+  applyMove(PASS, true);
+  $('msg').textContent = '你选择了弃权(双方都弃权就结束)';
+  refresh();
+};
+$('btnUndo').onclick = () => {
+  if (!S || S.over) { $('msg').textContent = '已终局,点新开局吧'; return; }
+  if (thinking) {                       /* AI 思考中:取消它,撤到你上一手之前 */
+    thinkToken++;                     /* 让进行中的思考自行作废 */
+  }
+  let m = -1;                            /* 人类最后一手在 moves 里的序号 */
+  for (let k = 0; k < S.moves.length; k++) if (S.moves[k].whoHuman) m = k;
+  if (m < 0) { $('msg').textContent = '还没有你的落子可悔(AI 先手不可悔)'; return; }
+  const waitApply = () => {
+    restore(S.snaps[m]);
+    S.snaps = S.snaps.slice(0, m + 1);
+    hints = []; thinking = false;
+    $('msg').textContent = '已悔棋(连 AI 的应手一起撤回)';
+    refresh();
+  };
+  if (thinking) { setTimeout(waitApply, 50); }    /* 等思考分片让出 UI 后再撤 */
+  else waitApply();
+};
+$('btnHint').onclick = () => {
+  if (!myTurn()) return;
+  const legal = legalMoves(S.board, S.toMove, new Set(S.histKeys));
+  priorsOf(session, S.board, S.toMove, legal).then(pr => {
+    hints = Object.keys(pr).sort((a, b) => pr[b] - pr[a]).slice(0, 3).map(k => ({ idx: +k }));
+    draw();
+  });
+  $('msg').textContent = '小提示:绿圈是 AI 觉得不错的点';
+};
+$('btnNew').onclick = () => newGame();
+$('diff').onchange = () => { $('msg').textContent = '难度已切换'; };
+
+function newGame() {
+  thinkToken++;                          /* 作废进行中的思考 */
+  thinking = false;
+  S = freshState();
+  hints = [];
+  $('overlay').style.display = 'none';
+  $('msg').textContent = S.human === 1 ? '新局:你执黑,请落子' : '新局:你执白,AI 先行';
+  $('youBadge').textContent = S.human === 1 ? '⚫ 你执黑先行' : '⚪ 你执白后手';
+  refresh();
+  maybeAiTurn();
+}
+
+function refresh() {
+  $('capB').textContent = S.capMe; $('capW').textContent = S.capAi; $('mvN').textContent = S.moves.length;
+  if (S.over) { $('turn').textContent = '对局结束'; $('bar').style.width = '0%'; }
+  else if (thinking) $('turn').textContent = '🤖 AI 思考中…';
+  else if (myTurn()) { $('turn').textContent = S.human === 1 ? '⚫ 轮到你落子' : '⚪ 轮到你落子'; $('thinkStat').textContent = '点击棋盘交叉点下子'; }
+  else $('turn').textContent = '🤖 AI 回合';
+  $('log').innerHTML = S.moves.map(m => '<b>' + m.text + '</b>').join(' · ') || '(尚未落子)';
+  draw();
+  if (!S.over) maybeAiTurn();          // 轮到 AI 且空闲时自动开思(幂等)
+}
+
+/* ---------- 启动 ---------- */
+fetch('./model-meta.json').then(r => r.json()).then(j => { meta = j; }).catch(() => {});
+initAI();
+$('ovAgain').addEventListener('click', newGame);
+newGame();
+})();
+</script>
+</body>
+</html>
