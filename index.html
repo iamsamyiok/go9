@@ -84,6 +84,7 @@ select{border:2px solid var(--line);border-radius:10px;padding:9px 10px;font-siz
             <option value="120">🌱 启蒙 · AI 会放水</option>
             <option value="400" selected>🌿 进阶 · AI 认真下</option>
             <option value="900">🌳 挑战 · AI 全力</option>
+            <option value="katago">🚀 巅峰 · KataGo 引擎</option>
           </select>
           <button id="btnHint" class="alt">💡 提示</button>
           <button id="btnPass" class="mut">🙋 弃权</button>
@@ -126,7 +127,7 @@ function freshState() {
     toMove: 1,
     human, ai: human === 1 ? 2 : 1,
     histKeys: [Array(N * N).fill(0).join('')],
-    passes: 0, capMe: 0, capAi: 0, moves: [],
+    passes: 0, capMe: 0, capAi: 0, moves: [], moveSeq: [],
     snaps: [], over: false, result: null, territory: null,
   };
 }
@@ -134,13 +135,13 @@ function freshState() {
 function pushSnap() {   /* snaps[k] = 第 k 手落下之前的状态 */
   S.snaps.push({ board: S.board.slice(), toMove: S.toMove,
     hist: S.histKeys.slice(), passes: S.passes,
-    capMe: S.capMe, capAi: S.capAi, nmoves: S.moves.length });
+    capMe: S.capMe, capAi: S.capAi, nmoves: S.moves.length, nmv: S.moveSeq.length });
 }
 
 function restore(s) {
   S.board = s.board.slice(); S.toMove = s.toMove; S.histKeys = s.hist.slice();
   S.passes = s.passes; S.capMe = s.capMe; S.capAi = s.capAi;
-  S.moves.length = s.nmoves; S.over = false; S.result = null; S.territory = null;
+  S.moves.length = s.nmoves; S.moveSeq.length = s.nmv; S.over = false; S.result = null; S.territory = null;
 }
 
 /* ---------- 绘制 ---------- */
@@ -215,6 +216,7 @@ async function initAI() {
 }
 
 function aiThink() {
+  if ($('diff').value === 'katago') { remoteThink(); return; }
   thinking = true; hints = [];
   const token = ++thinkToken;
   const history = new Set(S.histKeys);
@@ -232,8 +234,35 @@ function aiThink() {
   })().catch(err => { thinking = false; $('msg').textContent = 'AI 出错: ' + (err && err.message || err); refresh(); });
 }
 
+function remoteThink() {
+  thinking = true; hints = [];
+  S.thinkT0 = Date.now();
+  const token = ++thinkToken;
+  const color = S.toMove === 1 ? 'B' : 'W';
+  $('bar').style.width = '60%';
+  $('thinkStat').textContent = 'KataGo 引擎思考中…(2核服务器专用档)';
+  fetch('/katago/move', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ moves: S.moveSeq, color, komi: 5.5, visits: 96 }) })
+  .then(r => r.json())
+  .then(j => {
+    if (token !== thinkToken) { refresh(); return; }
+    thinking = false; $('bar').style.width = '0%';
+    if (j.error) { $('msg').textContent = 'KataGo 出错,已切回本地 AI'; aiThinkLocal(); return; }
+    const idx = j.pass ? PASS : coordIdx(j.move);
+    $('thinkStat').textContent = 'KataGo 应手 ' + j.move + '(' + ((Date.now() - S.thinkT0) / 1000).toFixed(1) + 's)';
+    applyMove(idx, false);
+    refresh();
+  })
+  .catch(err => { thinking = false; $('msg').textContent = 'KataGo 连接失败,改用本地 AI'; aiThinkLocal(); });
+}
+function coordIdx(name) {
+  const col = 'ABCDEFGHJ'.indexOf(name[0]);
+  return col + (parseInt(name.slice(1)) - 1) * N;
+}
+
 function maybeAiTurn() {
-  if (!ready || !S || S.over || thinking || S.toMove !== S.ai) return;
+  if (!S || S.over || thinking || S.toMove !== S.ai) return;
+  if ($('diff').value !== 'katago' && !ready) return;   // KataGo 档不依赖本地模型
   aiThink();
 }
 
@@ -248,6 +277,7 @@ function applyMove(idx, byHuman) {
   if (idx === PASS) {
     S.passes++;
     S.moves.push({ idx: PASS, text: who + ' 弃权', whoHuman: isHuman });
+    S.moveSeq.push({ c: color === 1 ? 'B' : 'W', mv: 'pass' });
   } else {
     const before = S.board.slice();
     const r = tryPlay(S.board, idx, color);
@@ -259,6 +289,7 @@ function applyMove(idx, byHuman) {
     S.histKeys.push(r.board.join(''));
     S.passes = 0;
     S.moves.push({ idx, text: who + ' 落子 ' + coordName(idx) + (cap ? '(提' + cap + ')' : ''), whoHuman: isHuman });
+    S.moveSeq.push({ c: color === 1 ? 'B' : 'W', mv: coordName(idx) });
     if (byHuman) beep(cap ? 660 : 440, cap ? 0.25 : 0.12, cap ? 'triangle' : 'sine');
   }
   S.toMove = color === 1 ? 2 : 1;
