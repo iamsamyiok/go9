@@ -242,7 +242,7 @@ function remoteThink() {
   $('bar').style.width = '60%';
   $('thinkStat').textContent = 'KataGo 引擎思考中…(2核服务器专用档)';
   fetch('/katago/move', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ moves: S.moveSeq, color, komi: 5.5, visits: 32 }) })
+    body: JSON.stringify({ moves: S.moveSeq, color, komi: 5.5, visits: 12 }) })
   .then(r => r.json())
   .then(j => {
     if (token !== thinkToken) { refresh(); return; }
